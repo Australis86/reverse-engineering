@@ -34,6 +34,8 @@ def initMenu():
 
 	parser.add_argument("-d", "--debug", help="enable debug outputs",
 		action="store_true")
+	parser.add_argument("-u", "--unknown", help="shown only unknown fields when analysing",
+		action="store_true")
 	
 	return parser.parse_args()
 
@@ -42,7 +44,26 @@ def initMenu():
 # CONT file analysis
 #############################################
 
-def printCont(data, debug=False):
+def identifySource(field, debug=False):
+	'''Assumes this flag is what I think it is...'''
+	
+	if field == 32:
+		return "Directly Imported"
+	elif field == 33:
+		return "Single-Clip Project"
+	elif field == 49:
+		return "Multi-Clip Project"
+	else:
+		return "Unknown Value (%d)" % field
+
+
+def readContTimestamp(data, debug=False):
+	'''Take an array of 16-bit ints and convert to a timestamp.'''
+	
+	return datetime.datetime(data[1],data[2],data[4],data[5],data[6],data[7])
+	
+
+def printCont(data, unknown_fields=False, debug=False):
 	'''Print out the Panasonic CONT file in a human-readable format.'''
 	
 	if type(data) == bytes:
@@ -50,8 +71,9 @@ def printCont(data, debug=False):
 	
 	blocks = len(data)
 	
-	# First 14 bytes are the file type
-	reveng.printChars(data[0:7])
+	if not unknown_fields:
+		# First 14 bytes are the file type
+		print(reveng.extractChars(data[0:7]))
 	
 	# Header information that I haven't decoded yet
 	# This is of varying length (depending on the source device)
@@ -65,61 +87,67 @@ def printCont(data, debug=False):
 	reveng.printInts(data[7:n])
 	print()
 
-	# Modification dates?
-	print("Recording and file timestamps:")
-	reveng.printInts(data[n:n+8])
-	reveng.printInts(data[n+8:n+16])
-	reveng.printInts(data[n+16:n+24])
-	reveng.printInts(data[n+24:n+32])
+	# File metadata
+	print("File Metadata")
 
-	n = n+33
-	x = n+20
+	if not unknown_fields:
+		# File timestamps
+		print("\tRecorded:\t", readContTimestamp(data[n:n+8]))
+		print("\tRecorded (UTC):\t", readContTimestamp(data[n+8:n+16]))
+		print("\tLast Modified:\t", readContTimestamp(data[n+16:n+24]))
+		print("\tFile Created:\t", readContTimestamp(data[n+24:n+32]))
 
-	fsize = (data[n+1] << 16) + data[n]
-	print("File size (bytes):", fsize)
+		# File size
+		n += 33
+		fsize = (data[n+1] << 16) + data[n]
+		print("\tFile Size:\t", fsize, "bytes")
+	else:
+		n += 33
+
+	# Unidentified fields
+	x = n+18
 	print()
-
-	reveng.printHex(data[n+2:x])
-	reveng.printInts(data[n+2:x])
+	reveng.printHex(data[n+2:n+16])
+	reveng.printInts(data[n+2:n+16])
 	print()
-
-	# File format information
-	pixel_w = data[x]
-	pixel_h = data[x+2]
-	ratio_w = data[x+4]
-	ratio_h = data[x+6]
-	frame_r = data[x+8]
-	unknown1 = data[x+10]
-	unknown2 = data[x+12]
-	audio_id = data[x+13]
-	unknown3 = data[x+14]
-	audio_bitrate = (data[x+17] << 16) + data[x+16]
-	audio_bitdepth = data[x+18]
-	audio_channels = data[x+19]
-	audio_freq = data[x+20]
 	
-	dev_start = x+20+4
-	
-	print("Frame size:\t", pixel_w, 'x', pixel_h)
-	print("Aspect ratio:\t", ratio_w, 'x', ratio_h)
-	print("Frame rate:\t", frame_r)
-	print("Unknown:\t", unknown1)
-	print("Unknown:\t", unknown2)
-	print("Audio ID?:\t", audio_id)
-	print("Unknown:\t", unknown3)
-	print("Audio bitrate?:\t", audio_bitrate)
-	print("Audio depth?:\t", audio_bitdepth)
-	print("Audio channels?:\t", audio_channels)
-	print("Audio freq?:\t", audio_freq)
+	print("\tOrigin (TBC):\t", identifySource(data[n+16]),"\n")
 
-	print()
-	reveng.printHex(data[x+21:dev_start])
-	print()
+	if not unknown_fields:
 
-	brand = data[dev_start:dev_start+128]
-	device = data[dev_start+128:dev_start+256]
-	reveng.printChars(brand)
-	reveng.printChars(device)
+		# Video stream
+		print("Video stream (TBC)")
+		print("\tUnknown:\t", data[x])
+		print("\tFrame size:\t", data[x+2], 'x', data[x+4])
+		print("\tAspect ratio:\t", data[x+6], 'x', data[x+8])
+		print("\tFrame rate:\t", data[x+10])
+		print("\tUnknown:\t", data[x+12]) # Maybe stream count?
+
+		# Audio stream
+		print("\nAudio stream (TBC)")
+		print("\tUnknown:\t", data[x+14])
+		print("\tStream ID:\t", data[x+15])
+		print("\tUnknown:\t", data[x+16]) # Maybe stream count?
+		print("\tBitrate:\t", (data[x+19] << 16) + data[x+18])
+		print("\tBitdepth:\t", data[x+20])
+		print("\tChannels:\t", data[x+21])
+		print("\tFrequency:\t", data[x+22])
+
+	# End of header
+	dev_start = x+22+4
+
+	if not unknown_fields:
+		print("\nHeader End Fields")
+		reveng.printHex(data[x+21:dev_start])
+
+		# Device information
+		print("\nDevice Information")
+		print("==================")
+		brand = data[dev_start:dev_start+128]
+		print(reveng.extractChars(brand))
+		device = data[dev_start+128:dev_start+256]
+		print(reveng.extractChars(device))
+		print("==================")
 	
 	# Start of file information
 	i = dev_start+256
@@ -135,25 +163,26 @@ def printCont(data, debug=False):
 				dt.append(data[x])
 				x += 1
 			
-			print("\nDatestamp detected:")
-			reveng.printChars(dt)
+			print("\nDatestamp detected:", reveng.extractChars(dt))
 			
 			# Update the pointer
 			i = x
 		
 		# Video (M2TS) file
 		elif element == 1:
-			print("\nVideo file:")
+			print("\nVideo File")
 			reveng.printHex(data[i+1:i+8])
 			#reveng.printInts(data[i+1:i+8])
 			m2ts_size = (data[i+9] << 16) + data[i+8]
-			print("File size (bytes):", m2ts_size)
+			if not unknown_fields:
+				print("\tFile Size:\t", m2ts_size, "bytes")
 			reveng.printHex(data[i+12:i+16])
 			#reveng.printInts(data[i+12:i+16])
 			x = i+17
 			str_len = int(data[x-1] / 2)
 			str_data = data[x:x+str_len]
-			reveng.printChars(str_data)
+			if not unknown_fields:
+				print("\tFile Name:\t",reveng.extractChars(str_data))
 
 			# Update the pointer
 			i = x+str_len
@@ -167,7 +196,8 @@ def printCont(data, debug=False):
 			x = i+13
 			str_len = int(data[x-1] / 2)
 			str_data = data[x:x+str_len]
-			reveng.printChars(str_data)
+			if not unknown_fields:
+				print("\tFile Name:\t",reveng.extractChars(str_data))
 
 			# Update the pointer
 			i = x+str_len
@@ -180,14 +210,15 @@ def printCont(data, debug=False):
 			x = i+7
 			str_len = int(data[x-1] / 2)
 			str_data = data[x:x+str_len]
-			reveng.printChars(str_data)
+			if not unknown_fields:
+				print("\tFile Name:\t",reveng.extractChars(str_data))
 
 			# Update the pointer
 			i = x+str_len
 			
 		i += 1
 
-def analyseCont(cont_file, debug=False):
+def analyseCont(cont_file, unknown_fields=False, debug=False):
 	'''Print out the Panasonic CONT file in a human-readable format.'''
 	
 	if not os.path.exists(cont_file):
@@ -195,7 +226,7 @@ def analyseCont(cont_file, debug=False):
 		sys.exit(1)
 	
 	data = reveng.readFile16(cont_file, "little", True)
-	printCont(data, debug)
+	printCont(data, unknown_fields, debug)
 
 
 ######################################################
@@ -293,6 +324,7 @@ def buildCont(m2ts_file, debug=False):
 		{'data':'\nCont\n', 'fmt': fmtc, 'raw':False},
 		
 		# Unidentified binary data
+		# This remains constant between files from the camera
 		{'data':b'\x0a\x00\x00\x00\x00\x10\x01\x00\x00\x00\x00\x01\x05\x00\x00\x00\x01\x00\x00\x00\x4c\x00\x00\x00\x02\x00\x00\x00\xe4\x02\x00\x00\x05\x00\x00\x00\xfe\x02\x00\x00\x06\x00\x00\x00\x50\x03\x00\x00\x0a\x00\x00\x00\xd6\x03', 'raw':True}, # Camera Header
 		
 		# Recording information
@@ -426,4 +458,4 @@ if __name__ == '__main__':
 	if args.input:
 		buildCont(args.input, args.debug)
 	elif args.analyse:
-		analyseCont(args.analyse, args.debug)
+		analyseCont(args.analyse, args.unknown, args.debug)

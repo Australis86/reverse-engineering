@@ -62,10 +62,9 @@ def printInts(data, debug=False):
 		i += 16
 
 
-def printChars(data, debug=False):
-	'''Try to print out any string content. Consecutive 
-	NULs are replaced with a single new-line char for ease
-	of reading.'''
+def extractChars(data, debug=False):
+	'''Extract a string. Consecutive NULs are replaced with a 
+	single new-line char for ease of reading.'''
 	
 	if debug:
 		print("\n16-bit characters:")
@@ -81,7 +80,7 @@ def printChars(data, debug=False):
 		except ValueError:
 			s.append('?')
 
-	print(''.join(s))
+	return ''.join(s)
 
 
 if __name__ == '__main__':
