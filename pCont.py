@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#!/usr/bin/python
 
 """This script is intended to reverse-engineer the Panasonic .CONT file format."""
 
@@ -14,12 +14,35 @@ import datetime
 import platform
 import struct
 import array
+import argparse
 import reveng # Custom reverse-engineering module
 
 
-# FILE PRINTING FUNCTIONS
+# Absolute path to the script's current directory
+PATH = os.path.dirname(os.path.abspath(__file__))
 
-def prettyPrint(data, camera=False):
+
+def initMenu():
+	"""Initialise the command-line parser."""
+	
+	parser = argparse.ArgumentParser()
+	
+	# Can't analyse and output a file at the same time
+	group = parser.add_mutually_exclusive_group()
+	group.add_argument("-a", "--analyse", help="source CONT file to analyse")
+	group.add_argument("-i", "--input", help="source M2TS video file")
+
+	parser.add_argument("-d", "--debug", help="enable debug outputs",
+		action="store_true")
+	
+	return parser.parse_args()
+
+
+#############################################
+# CONT file analysis
+#############################################
+
+def printCont(data, debug=False):
 	'''Print out the Panasonic CONT file in a human-readable format.'''
 	
 	if type(data) == bytes:
@@ -32,11 +55,10 @@ def prettyPrint(data, camera=False):
 	
 	# Header information that I haven't decoded yet
 	# This is of varying length (depending on the source device)
-
-	if camera:
-		n = 37 # Camera
-	else:
-		n = 29 # HD Writer
+	for n in range(29,38,1):
+		# Use the datestamp fields to detect the header length
+		if data[n] == data[n+8] == data[n+16] == data[n+24] and data[n+1] == data[n+9]:
+			break
 
 	print()
 	reveng.printHex(data[7:n])
@@ -165,9 +187,20 @@ def prettyPrint(data, camera=False):
 			
 		i += 1
 
+def analyseCont(cont_file, debug=False):
+	'''Print out the Panasonic CONT file in a human-readable format.'''
+	
+	if not os.path.exists(cont_file):
+		print("Error: file %s not found." % cont_file)
+		sys.exit(1)
+	
+	data = reveng.readFile16(cont_file, "little", True)
+	printCont(data, debug)
 
 
-# FILE CREATION FUNCTIONS
+######################################################
+# Cont file creation
+######################################################
 
 def fileCreationDate(path_to_file):
 	"""	Try to get the date that a file was created, falling back to when it was
@@ -203,7 +236,7 @@ def buildCont(m2ts_file, debug=False):
 	
 	# Check that the file exists
 	if not os.path.exists(m2ts_file):
-		print("Error: file %s not found.")
+		print("Error: file %s not found." % m2ts_file)
 		sys.exit(1)
 	else:
 		fname = os.path.basename(m2ts_file)
@@ -244,7 +277,8 @@ def buildCont(m2ts_file, debug=False):
 			params['record_dt_utc'] = params['file_created'] - (datetime.datetime.now() - datetime.datetime.utcnow())
 	
 	params['record_str'] = makeContDateString(params['record_dt'])
-	#print(params)
+	if debug:
+		print(params)
 	
 	# Formats
 	fmts = '<H'	# Little-endian unsigned short (2 bytes)
@@ -380,7 +414,7 @@ def buildCont(m2ts_file, debug=False):
 	# Debug output
 	if debug:
 		reveng.printHex(data)
-		prettyPrint(data, True)
+		printCont(data, debug)
 	
 	f = open(cont_file, 'w+b')
 	f.write(data)
@@ -388,4 +422,8 @@ def buildCont(m2ts_file, debug=False):
 
 
 if __name__ == '__main__':
-	buildCont('/cygdrive/k/Projects/HCV130_Camera/Test/00019.M2TS', True)
+	args = initMenu()
+	if args.input:
+		buildCont(args.input, args.debug)
+	elif args.analyse:
+		analyseCont(args.analyse, args.debug)
