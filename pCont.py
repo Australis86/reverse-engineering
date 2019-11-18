@@ -51,6 +51,8 @@ def identifySource(field, debug=False):
 		return "Directly Imported"
 	elif field == 33:
 		return "Single-Clip Project"
+	elif field == 48:
+		return "Previous Library Import (TBC)"
 	elif field == 49:
 		return "Multi-Clip Project"
 	else:
@@ -101,17 +103,24 @@ def printCont(data, unknown_fields=False, debug=False):
 		n += 33
 		fsize = (data[n+1] << 16) + data[n]
 		print("\tFile Size:\t", fsize, "bytes")
+		n += 2
 	else:
-		n += 33
+		n += 35
 
 	# Unidentified fields
-	x = n+18
+	x = n+16
 	print()
-	reveng.printHex(data[n+2:n+16])
-	reveng.printInts(data[n+2:n+16])
+	reveng.printHex(data[n+2:n+5])
+	reveng.printInts(data[n+2:n+5])
+	print("\tUnknown Data 1:\t", format(data[n+2], '#018b'))
+	print("\tUnknown Data 2:\t", format(data[n+3], '#018b'))
+	print("\tUnknown Data 3:\t", format(data[n+4], '#018b'))
 	print()
-	
-	print("\tOrigin (TBC):\t", identifySource(data[n+16]),"\n")
+	print("\tUnknown:\t", data[n+10])
+	print("\tUnknown Flag:\t", data[n+11])
+	print("\tUnknown Const:\t", data[n+12])
+	print("\tUnknown Const:\t", data[n+13])
+	print("\tOrigin (TBC):\t", identifySource(data[n+14]),"\n")
 
 	if not unknown_fields:
 
