@@ -347,11 +347,16 @@ def buildCont(m2ts_file, debug=False):
 		{'data':params['file_size'], 'fmt': fmti, 'raw':False, 'prenul': 2},
 		
 		# Unidentified binary data
-		{'data':[0, 54400, 19064, 1, 0, 0, 0, 0, 0, 26570, 234], 'fmt': fmts, 'raw':False, 'prenul':2},
-		{'data':[1, 256], 'fmt': fmts, 'raw':False}, # These bytes are always consistent in my examples
+		{'data': b'\x80', 'raw':True, 'prenul':4}, # This is always 0x80 when sourced from the camera
+		{'data': b'\x10', 'raw':True}, # This varies, but the last bit is typically 0
+		{'data': 19064, 'fmt': fmts, 'raw':False}, # Varies significantly
+		{'data': 0, 'fmt': fmts, 'raw':False}, # Almost always zero, but occasionally 1-4
+		{'data': [0, 0, 0, 0, 0], 'fmt': fmts, 'raw':False}, # Possibly unused fields?
+		{'data': [26570, 240], 'fmt': fmts, 'raw':False}, # First value varies significantly; second varies around 240
+		{'data': [1, 256], 'fmt': fmts, 'raw':False}, # These bytes are always consistent in my examples
 
 		# Video stream fields
-		{'data': b'\x20\x00', 'raw':True}, # This seems to be a flag that to indicates that the video is either imported from the camera (x2000), produced from a single-file (0x2100) or composite project (0x3100)
+		{'data': b'\x20\x00', 'raw':True}, # This seems to be a flag that to indicates the source of the video (camera is 0x2000)
 		{'data': 0, 'fmt': fmts, 'raw':False, 'prenul': 2}, # Unidentified field (always 0 in examples available to me)
 		{'data': 1920, 'fmt': fmts, 'raw':False, 'prenul': 2}, # Video dimensions
 		{'data': 1080, 'fmt': fmts, 'raw':False, 'prenul': 2},
@@ -369,7 +374,7 @@ def buildCont(m2ts_file, debug=False):
 		{'data': params['audio_channels'], 'fmt': fmts, 'raw':False}, # Audio channels
 		{'data': params['audio_frequency'], 'fmt': fmts, 'raw':False}, # Audio frequency
 		
-		# Unidentified binary data (seems to indicate end of header)
+		# Unidentified binary data (seems to indicate end of header); consistent between sample files
 		{'data':b'\x04\x00\x00\x21', 'raw':True, 'prenul':2},
 		
 		# Brand
@@ -455,7 +460,7 @@ def buildCont(m2ts_file, debug=False):
 	# Debug output
 	if debug:
 		reveng.printHex(data)
-		printCont(data, debug)
+		printCont(data, debug=debug)
 	
 	f = open(cont_file, 'w+b')
 	f.write(data)
