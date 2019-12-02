@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-"""This script is intended to reverse-engineer the Panasonic .CONT file format."""
+"""This script is intended to reverse-engineer the Panasonic .CONT and .PMPD metadata files."""
 
 __version__ = "1.0"
 __author__ = "Joshua White"
@@ -15,6 +15,7 @@ import platform
 import struct
 import array
 import argparse
+import shutil
 import reveng # Custom reverse-engineering module
 
 
@@ -271,8 +272,8 @@ def makeContDateString(dt):
 	return dt.strftime('%d.%m.%Y')
 
 
-def buildCont(m2ts_file, debug=False):
-	'''Create a cont file.'''
+def buildMetadata(m2ts_file, debug=False):
+	'''Create cont and pmpd files.'''
 	
 	# Check that the file exists
 	if not os.path.exists(m2ts_file):
@@ -311,11 +312,12 @@ def buildCont(m2ts_file, debug=False):
 		except Exception as err:
 			tz_offset = None
 			
-		if tz_offset is not None:
-			params['record_dt_utc'] = params['file_created'] - tz_offset
-		else:
-			params['record_dt_utc'] = params['file_created'] - (datetime.datetime.now() - datetime.datetime.utcnow())
-	
+		if tz_offset is None:
+			print("WARNING: Couldn't get UTC offset, so using local timezone offset")
+			tz_offset = datetime.datetime.now() - datetime.datetime.utcnow()
+		
+		params['record_dt_utc'] = params['file_created'] - tz_offset
+		
 	params['record_str'] = makeContDateString(params['record_dt'])
 	if debug:
 		print(params)
@@ -325,7 +327,7 @@ def buildCont(m2ts_file, debug=False):
 	fmti = '<I' # Little-endian unsigned int (4 bytes)
 	fmtc = 'B'	# For the occasional characters
 	
-	# Distinct blocks of data in the binary file
+	# Distinct blocks of data in the binary CONT file
 	file_structure = [
 	
 		# File format header
@@ -398,8 +400,8 @@ def buildCont(m2ts_file, debug=False):
 		{'data': 2*len(fname)+2, 'raw':False, 'fmt': fmts}, # Length of filename field
 		{'data': fname, 'raw':False, 'fmt': fmts, 'prenul': 2}, # Filename string
 		
-		# Seems the TMB and PMPD entries are needed for HD Writer to recognise the file
-		# (even though the files themselves aren't required)
+		# The TMB and PMPD entries are needed for HD Writer to recognise the file
+		# (even though the files themselves might not be required)
 		
 		# TMB File
 		{'data':b'\x02\x00', 'raw':True, 'prenul': 2}, # Flag to indicate thumbnail file
@@ -459,17 +461,40 @@ def buildCont(m2ts_file, debug=False):
 	
 	# Debug output
 	if debug:
-		reveng.printHex(data)
+		#reveng.printHex(data)
 		printCont(data, debug=debug)
+		print()
 	
+	# Write out the cont file
 	f = open(cont_file, 'w+b')
 	f.write(data)
 	f.close()
+	print("Created CONT file:", cont_file)
+	
+	# The PMPD file is XML and we only need to substitute a few fields
+	templatef = open('templates/panasonic/xml.pmpd', 'r')
+	pmpd = templatef.read()
+	
+	# datetime = YYYY/MM/DD HH:MM:SS
+	# bias = utc offset in minutes
+	pmpd = pmpd.replace('$bias$','%d' % round(tz_offset.seconds/60.0))
+	pmpd = pmpd.replace('$datetime$', params['record_dt'].strftime('%Y/%m/%d %H:%M:%S'))
+	
+	# Write out the PMPD (XML) file
+	f = open(pmpd_file, 'w')
+	f.write(pmpd)
+	f.close()
+	print("Created PMPD file from template:", pmpd_file)
+	
+	
+	# Use the template thumbnail (blank)
+	shutil.copy2('templates/panasonic/thumbnail.tmb', tmb_file)
+	print("Created thumbnail file from template:", tmb_file)
 
 
 if __name__ == '__main__':
 	args = initMenu()
 	if args.input:
-		buildCont(args.input, args.debug)
+		buildMetadata(args.input, args.debug)
 	elif args.analyse:
 		analyseCont(args.analyse, args.unknown, args.debug)
