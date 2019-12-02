@@ -247,9 +247,9 @@ def analyseCont(cont_file, unknown_fields=False, debug=False):
 	printCont(data, unknown_fields, debug)
 
 
-######################################################
-# Cont file creation
-######################################################
+###############################################################################
+# Metadata File Creation
+###############################################################################
 
 def fileCreationDate(path_to_file):
 	"""	Try to get the date that a file was created, falling back to when it was
@@ -265,6 +265,18 @@ def fileCreationDate(path_to_file):
 			# We're probably on Linux. No easy way to get creation dates here,
 			# so we'll settle for when its content was last modified.
 			return stat.st_mtime
+
+
+def makeWindowsFiletime(unix_time):
+	'''Take a Unix time and return the Windows FILETIME.'''
+	
+	# Unix timestamp is in seconds, so convert to hundreds of nanoseconds
+	n = int(unix_time*10000000)
+	
+	# Add offset for 1601-01-01
+	filetime = 116444736000000000 + n
+	
+	return filetime
 
 
 def makeContTimestamp(dt, x=5):
@@ -289,7 +301,8 @@ def buildMetadata(m2ts_file, debug=False):
 		sys.exit(1)
 	else:
 		fname = os.path.basename(m2ts_file)
-		print("Preparing CONT file for %s..." % fname)
+		m2ts_creation_date = fileCreationDate(m2ts_file)
+		print("Preparing metadata files for %s..." % fname)
 		
 		# Generate the filename for the CONT file
 		fbase = os.path.splitext(fname)[0]
@@ -297,11 +310,11 @@ def buildMetadata(m2ts_file, debug=False):
 		tmb_file = '%s.tmb' % fbase
 		pmpd_file = '%s.pmpd' % fbase
 	
-	# Prepare the parameters required for the CONT file
+	# Prepare the parameters required for the CONT and XML files
 
 	# Read file timestamps
 	params = {
-		'file_created': datetime.datetime.fromtimestamp(fileCreationDate(m2ts_file)),
+		'file_created': datetime.datetime.fromtimestamp(m2ts_creation_date),
 		'file_modified': datetime.datetime.fromtimestamp(os.path.getmtime(m2ts_file)),
 		'file_size': os.path.getsize(m2ts_file),
 		'audio_stream': 4352, # TO DO: Read from file
@@ -330,9 +343,39 @@ def buildMetadata(m2ts_file, debug=False):
 	if debug:
 		print(params)
 	
+	
+	###########################################################################
+	# Create the thumbnail and PMPD (XML) files first, since we need the creation dates to put into the CONT file
+	###########################################################################
+	
+	# Use the template thumbnail (blank)
+	shutil.copy2('templates/panasonic/thumbnail.tmb', tmb_file)
+	print("Created thumbnail file from template:", tmb_file)
+
+	# The PMPD file is XML and we only need to substitute a few fields
+	templatef = open('templates/panasonic/xml.pmpd', 'r')
+	pmpd = templatef.read()
+	
+	# datetime = YYYY/MM/DD HH:MM:SS
+	# bias = utc offset in minutes
+	pmpd = pmpd.replace('$bias$','%d' % round(tz_offset.seconds/60.0))
+	pmpd = pmpd.replace('$datetime$', params['record_dt'].strftime('%Y/%m/%d %H:%M:%S'))
+	
+	# Write out the PMPD (XML) file
+	f = open(pmpd_file, 'w')
+	f.write(pmpd)
+	f.close()
+	print("Created PMPD file from template:", pmpd_file)
+	
+	
+	###########################################################################
+	# Now create the CONT file
+	###########################################################################
+	
 	# Formats
 	fmts = '<H'	# Little-endian unsigned short (2 bytes)
 	fmti = '<I' # Little-endian unsigned int (4 bytes)
+	fmtl = '<Q' # Little-endian unsigned long long (8 bytes)
 	fmtc = 'B'	# For the occasional characters
 	
 	# Distinct blocks of data in the binary CONT file
@@ -401,10 +444,9 @@ def buildMetadata(m2ts_file, debug=False):
 		{'data':b'\x01\x00', 'raw':True, 'prenul': 2}, # Flag to indicate M2TS file
 		{'data':b'\x06\x03', 'raw':True, 'prenul': 2}, # Seems to be a flag that indicates video source (x0603 for the camera, 0xDC02 for HD Writer)
 		{'data':b'\x00' * 8, 'raw':True},
-		{'data':params['file_size'], 'fmt': fmti, 'raw':False, 'prenul': 2},
+		{'data': params['file_size'], 'fmt': fmti, 'raw':False, 'prenul': 2},
 		{'data':b'\x00' * 4, 'raw':True},
-		{'data':b'\x00' * 4, 'raw':True}, # Unidentified binary data
-		{'data':b'\x00' * 4, 'raw':True}, # Unidentified binary data (this should match the fields from the TMB and PMPD files)
+		{'data': makeWindowsFiletime(m2ts_creation_date), 'raw':False, 'fmt':fmtl}, # M2TS file creation timestamp
 		{'data': 2*len(fname)+2, 'raw':False, 'fmt': fmts}, # Length of filename field
 		{'data': fname, 'raw':False, 'fmt': fmts, 'prenul': 2}, # Filename string
 		
@@ -414,13 +456,13 @@ def buildMetadata(m2ts_file, debug=False):
 		# TMB File
 		{'data':b'\x02\x00', 'raw':True, 'prenul': 2}, # Flag to indicate thumbnail file
 		{'data':b'\x00' * 10, 'raw':True, 'prenul': 2}, # Unidentified binary data
-		{'data':b'\x00' * 8, 'raw':True, 'prenul': 2}, # Unidentified binary data (shared by TMB and PMPD files)
+		{'data': makeWindowsFiletime(fileCreationDate(tmb_file)), 'raw':False, 'fmt':fmtl, 'prenul': 2}, # TMB file creation timestamp
 		{'data': 2*len(tmb_file)+2, 'raw':False, 'fmt': fmts}, # Length of filename field
 		{'data': tmb_file, 'raw':False, 'fmt': fmts, 'prenul': 2}, # Filename string
 		
 		# PMPD File
 		{'data':b'\x04\x00', 'raw':True, 'prenul': 2}, # Flag to indicate PMPD XML file
-		{'data':b'\x00' * 8, 'raw':True, 'prenul': 2}, # Unidentified binary data (shared by TMB and PMPD files)
+		{'data': makeWindowsFiletime(fileCreationDate(pmpd_file)), 'raw':False, 'fmt':fmtl, 'prenul': 2}, # PMPD file creation timestamp
 		{'data': 2*len(pmpd_file)+2, 'raw':False, 'fmt': fmts}, # Length of filename field
 		{'data': pmpd_file, 'raw':False, 'fmt': fmts, 'prenul': 2}, # Filename string
 		
@@ -478,26 +520,7 @@ def buildMetadata(m2ts_file, debug=False):
 	f.write(data)
 	f.close()
 	print("Created CONT file:", cont_file)
-	
-	# The PMPD file is XML and we only need to substitute a few fields
-	templatef = open('templates/panasonic/xml.pmpd', 'r')
-	pmpd = templatef.read()
-	
-	# datetime = YYYY/MM/DD HH:MM:SS
-	# bias = utc offset in minutes
-	pmpd = pmpd.replace('$bias$','%d' % round(tz_offset.seconds/60.0))
-	pmpd = pmpd.replace('$datetime$', params['record_dt'].strftime('%Y/%m/%d %H:%M:%S'))
-	
-	# Write out the PMPD (XML) file
-	f = open(pmpd_file, 'w')
-	f.write(pmpd)
-	f.close()
-	print("Created PMPD file from template:", pmpd_file)
-	
-	
-	# Use the template thumbnail (blank)
-	shutil.copy2('templates/panasonic/thumbnail.tmb', tmb_file)
-	print("Created thumbnail file from template:", tmb_file)
+
 
 
 if __name__ == '__main__':
