@@ -66,6 +66,15 @@ def readContTimestamp(data, debug=False):
 	return datetime.datetime(data[1],data[2],data[4],data[5],data[6],data[7])
 	
 
+def filetimeToTimestamp(data, debug=False):
+	'''Convert a little-endian Windows FILETIME field into a Python timestamp.'''
+	
+	filetime = (data[3] << 48) + (data[2] << 32) + (data[1] << 16) + data[0]
+	usecs = filetime/10
+	dt = datetime.datetime(1601,1,1) + datetime.timedelta(microseconds=usecs)
+	return dt
+
+
 def printCont(data, unknown_fields=False, debug=False):
 	'''Print out the Panasonic CONT file in a human-readable format.'''
 	
@@ -184,14 +193,13 @@ def printCont(data, unknown_fields=False, debug=False):
 			reveng.printHex(data[i+1:i+8])
 			#reveng.printInts(data[i+1:i+8])
 			m2ts_size = (data[i+9] << 16) + data[i+8]
-			if not unknown_fields:
-				print("\tFile Size:\t", m2ts_size, "bytes")
-			reveng.printHex(data[i+12:i+16])
-			#reveng.printInts(data[i+12:i+16])
+			file_date = filetimeToTimestamp(data[i+12:i+16], debug)
 			x = i+17
 			str_len = int(data[x-1] / 2)
 			str_data = data[x:x+str_len]
 			if not unknown_fields:
+				print("\tFile Size:\t", m2ts_size, "bytes")
+				print("\tCreation Date:\t", file_date)
 				print("\tFile Name:\t",reveng.extractChars(str_data))
 
 			# Update the pointer
@@ -201,12 +209,12 @@ def printCont(data, unknown_fields=False, debug=False):
 		elif element == 2:
 			print("\nThumbnail file:")
 			reveng.printHex(data[i+1:i+8])
-			reveng.printHex(data[i+8:i+12])
-			#reveng.printInts(data[i+8:i+12])
+			file_date = filetimeToTimestamp(data[i+8:i+12], debug)
 			x = i+13
 			str_len = int(data[x-1] / 2)
 			str_data = data[x:x+str_len]
 			if not unknown_fields:
+				print("\tCreation Date:\t", file_date)
 				print("\tFile Name:\t",reveng.extractChars(str_data))
 
 			# Update the pointer
@@ -215,12 +223,12 @@ def printCont(data, unknown_fields=False, debug=False):
 		# XML (PMPD) file
 		elif element == 4:
 			print("\nXML file:")
-			reveng.printHex(data[i+2:i+6])
-			#reveng.printInts(data[i+2:i+6])
+			file_date = filetimeToTimestamp(data[i+2:i+6], debug)
 			x = i+7
 			str_len = int(data[x-1] / 2)
 			str_data = data[x:x+str_len]
 			if not unknown_fields:
+				print("\tCreation Date:\t", file_date)
 				print("\tFile Name:\t",reveng.extractChars(str_data))
 
 			# Update the pointer
@@ -461,7 +469,7 @@ def buildMetadata(m2ts_file, debug=False):
 	
 	# Debug output
 	if debug:
-		#reveng.printHex(data)
+		reveng.printHex(data)
 		printCont(data, debug=debug)
 		print()
 	
