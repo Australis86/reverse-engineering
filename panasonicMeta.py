@@ -455,7 +455,9 @@ def buildMetadata(m2ts_file, debug=False):
 		
 		# TMB File
 		{'data':b'\x02\x00', 'raw':True, 'prenul': 2}, # Flag to indicate thumbnail file
-		{'data':b'\x00' * 10, 'raw':True, 'prenul': 2}, # Unidentified binary data
+		{'data':b'\x5c\x03', 'raw':True, 'prenul': 2}, # Unidentified binary data
+		{'data':b'\x98\x03', 'raw':True, 'prenul': 2}, # Unidentified binary data
+		{'data':b'\x00' * 4, 'raw':True},
 		{'data': makeWindowsFiletime(fileCreationDate(tmb_file)), 'raw':False, 'fmt':fmtl, 'prenul': 2}, # TMB file creation timestamp
 		{'data': 2*len(tmb_file)+2, 'raw':False, 'fmt': fmts}, # Length of filename field
 		{'data': tmb_file, 'raw':False, 'fmt': fmts, 'prenul': 2}, # Filename string
