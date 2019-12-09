@@ -75,6 +75,17 @@ def filetimeToTimestamp(data, debug=False):
 	return dt
 
 
+def contDurationToSeconds(data, debug=False):
+	'''Convert the duration value to the nearest second.'''
+	
+	# This is rough and was worked out by changing the binary values one-by-one to establish a relationship!
+	# duration = (5/3)*field + (4/3)
+	# field = 0.6*duration - 0.8
+	
+	seconds = round((5.0/3.0)*data + (4.0/3.0))
+	return seconds
+
+
 def printCont(data, unknown_fields=False, debug=False):
 	'''Print out the Panasonic CONT file in a human-readable format.'''
 	
@@ -123,7 +134,9 @@ def printCont(data, unknown_fields=False, debug=False):
 	reveng.printHex(data[n+2:n+5])
 	reveng.printInts(data[n+2:n+5])
 	print("\tUnknown Data 1:\t", format(data[n+2], '#018b'))
+	#print("\tUnknown Data 2:\t", format(data[n+3], '#018b'))
 	print("\tUnknown Data 2:\t", format(data[n+3], '#018b'))
+	print("\tApprox Duration:", contDurationToSeconds(data[n+3] >> 8, debug), 'seconds')
 	print("\tUnknown Data 3:\t", format(data[n+4], '#018b'))
 	print()
 	print("\tUnknown:\t", data[n+10])
@@ -292,6 +305,18 @@ def makeContDateString(dt):
 	return dt.strftime('%d.%m.%Y')
 
 
+def makeContDuration(seconds):
+	'''Convert a number of seconds into the field value used by the CONT format.'''
+	
+	# This is rough and was worked out by changing the binary values one-by-one to establish a relationship!
+	# duration = (5/3)*field + (4/3)
+	# field = 0.6*duration - 0.8
+	
+	# Decimal value
+	dec_value = round(0.6*seconds - 0.8)
+	return dec_value
+
+
 def buildMetadata(m2ts_file, debug=False):
 	'''Create cont and pmpd files.'''
 	
@@ -322,6 +347,7 @@ def buildMetadata(m2ts_file, debug=False):
 		'audio_bitdepth': 16, # TO DO: Read from file
 		'audio_channels': 2, # TO DO: Read from file
 		'audio_frequency': 48000, # TO DO: Read from file
+		'duration': 72, # TO DO: Read from file
 	}
 	
 	# Use the file creation date for the recording date if not provided
@@ -402,7 +428,8 @@ def buildMetadata(m2ts_file, debug=False):
 		# Unidentified binary data
 		{'data': b'\x80', 'raw':True, 'prenul':4}, # This is always 0x80 when sourced from the camera
 		{'data': b'\x10', 'raw':True}, # This varies, but the last bit is typically 0
-		{'data': 19064, 'fmt': fmts, 'raw':False}, # Varies significantly
+		{'data': b'\xFA', 'raw':True}, # Varies significantly (not sure what it is yet)
+		{'data': makeContDuration(params['duration']), 'raw':False, 'fmt': fmtc}, # Video duration
 		{'data': 0, 'fmt': fmts, 'raw':False}, # Almost always zero, but occasionally 1-4
 		{'data': [0, 0, 0, 0, 0], 'fmt': fmts, 'raw':False}, # Possibly unused fields?
 		{'data': [26570, 240], 'fmt': fmts, 'raw':False}, # First value varies significantly; second varies around 240
